@@ -22,13 +22,32 @@ const GENERATED_DIR = path.join(__dirname, '..', 'generated');
 
 /**
  * Load and compile JSON Schema validator
- * @returns {object} Compiled validator
+ * @returns {import('ajv').ValidateFunction} Compiled AJV validator function
+ * @throws {Error} If schema file cannot be read or is invalid
  */
 function createValidator() {
+  let schemaContent;
+  try {
+    schemaContent = fs.readFileSync(SCHEMA_PATH, 'utf8');
+  } catch (err) {
+    throw new Error(`Failed to read schema file at ${SCHEMA_PATH}: ${err.message}`);
+  }
+
+  let schema;
+  try {
+    schema = JSON.parse(schemaContent);
+  } catch (err) {
+    throw new Error(`Schema file contains invalid JSON: ${err.message}`);
+  }
+
   const ajv = new Ajv({ allErrors: true, strict: false });
   addFormats(ajv);
-  const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
-  return ajv.compile(schema);
+
+  try {
+    return ajv.compile(schema);
+  } catch (err) {
+    throw new Error(`Failed to compile JSON Schema: ${err.message}`);
+  }
 }
 
 /**
@@ -66,13 +85,39 @@ function parseYamlWorkflow(yamlPath) {
 }
 
 /**
+ * Escape a string for use in JS single-quoted strings
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string (without quotes)
+ */
+function escapeString(str) {
+  return str
+    .replace(/\\/g, '\\\\')   // Backslashes first
+    .replace(/'/g, "\\'")     // Single quotes
+    .replace(/\n/g, '\\n')    // Newlines
+    .replace(/\r/g, '\\r')    // Carriage returns
+    .replace(/\t/g, '\\t');   // Tabs
+}
+
+/**
+ * Escape a string for use in JS template literals
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string (without backticks)
+ */
+function escapeTemplateString(str) {
+  return str
+    .replace(/\\/g, '\\\\')   // Backslashes first
+    .replace(/`/g, '\\`')     // Backticks
+    .replace(/\$\{(?!(extract|input|constants)\.)/g, '\\${'); // Non-variable ${
+}
+
+/**
  * Format a value for JS code output
  * @param {any} value - Value to format
  * @returns {string} Formatted JS value
  */
 function formatJsValue(value) {
   if (typeof value === 'string') {
-    return `'${value.replace(/'/g, "\\'")}'`;
+    return `'${escapeString(value)}'`;
   }
 
   if (typeof value === 'boolean' || typeof value === 'number') {
@@ -88,12 +133,13 @@ function formatJsValue(value) {
  * @returns {string} JS expression for the value
  */
 function convertInterpolation(str) {
-  const VARIABLE_PATTERN = /\$\{(extract|input|constants)\.[a-zA-Z_][a-zA-Z0-9_]*\}/g;
+  // Use non-global pattern for .test() to avoid lastIndex state issues
+  const VARIABLE_PATTERN = /\$\{(extract|input|constants)\.[a-zA-Z_][a-zA-Z0-9_]*\}/;
   const FULL_VARIABLE_PATTERN = /^\$\{(extract|input|constants)\.[a-zA-Z_][a-zA-Z0-9_]*\}$/;
 
   // No interpolation - return as plain string
   if (!VARIABLE_PATTERN.test(str)) {
-    return `'${str.replace(/'/g, "\\'")}'`;
+    return `'${escapeString(str)}'`;
   }
 
   // Single variable reference - return variable directly without template literal
@@ -101,8 +147,8 @@ function convertInterpolation(str) {
     return str.slice(2, -1);
   }
 
-  // Mixed content - convert to template literal
-  const escaped = str.replace(/'/g, "\\'");
+  // Mixed content - convert to template literal with proper escaping
+  const escaped = escapeTemplateString(str);
   return '`' + escaped + '`';
 }
 
@@ -125,10 +171,27 @@ function convertOperator(op) {
 /**
  * Convert a single condition to JS expression
  * @param {object} condition - Condition object { field, op, value }
+ * @param {string} [context=''] - Optional context for error messages
  * @returns {string} JS condition expression
+ * @throws {Error} If condition is invalid
  */
-function convertCondition(condition) {
+function convertCondition(condition, context = '') {
+  if (!condition || typeof condition !== 'object') {
+    throw new Error(`${context}Condition must be an object, got ${typeof condition}`);
+  }
+
   const { field, op, value } = condition;
+
+  if (typeof field !== 'string' || !field) {
+    throw new Error(`${context}Condition.field is required and must be a non-empty string`);
+  }
+  if (typeof op !== 'string' || !op) {
+    throw new Error(`${context}Condition.op is required and must be a non-empty string`);
+  }
+  if (value === undefined) {
+    throw new Error(`${context}Condition.value is required`);
+  }
+
   const jsOp = convertOperator(op);
   const jsValue = formatJsValue(value);
   return `${field} ${jsOp} ${jsValue}`;
@@ -137,22 +200,32 @@ function convertCondition(condition) {
 /**
  * Convert when clause to JS if condition
  * @param {object} when - When clause object
+ * @param {string} [stepName='unknown'] - Step name for error context
  * @returns {string} JS condition string (without 'if')
+ * @throws {Error} If when clause structure is invalid
  */
-function convertWhenClause(when) {
+function convertWhenClause(when, stepName = 'unknown') {
   // Single condition
   if (when.field && when.op) {
-    return convertCondition(when);
+    return convertCondition(when, `Step "${stepName}": `);
   }
 
   // Multiple conditions
   if (when.conditions && when.match) {
-    const conditions = when.conditions.map(convertCondition);
+    if (!Array.isArray(when.conditions)) {
+      throw new Error(`Step "${stepName}": when.conditions must be an array, got ${typeof when.conditions}`);
+    }
+    const conditions = when.conditions.map((cond, idx) => {
+      return convertCondition(cond, `Step "${stepName}" condition ${idx}: `);
+    });
     const connector = when.match === 'all' ? ' && ' : ' || ';
     return conditions.join(connector);
   }
 
-  throw new Error('Invalid when clause structure');
+  throw new Error(
+    `Step "${stepName}": Invalid when clause structure. ` +
+    `Expected { field, op, value } or { conditions, match }, got: ${JSON.stringify(when)}`
+  );
 }
 
 /**
@@ -183,22 +256,44 @@ function generateExecuteBody(step) {
       lines.push(`        await page.press(${formatJsValue(step.selector)}, ${formatJsValue(step.key)});`);
       break;
 
+    case 'type': {
+      const valueExpr = convertInterpolation(step.value);
+      lines.push(`        await page.keyboard.type(${valueExpr});`);
+      break;
+    }
+
+    case 'select': {
+      const valueExpr = convertInterpolation(step.value);
+      lines.push(`        await page.selectOption(${formatJsValue(step.selector)}, ${valueExpr});`);
+      break;
+    }
+
+    case 'file_upload': {
+      const fileExpr = convertInterpolation(step.file);
+      lines.push(`        await page.setInputFiles(${formatJsValue(step.selector)}, ${fileExpr});`);
+      break;
+    }
+
     case 'wait': {
       const timeout = step.timeout || 30000;
       lines.push(`        await page.waitForSelector(${formatJsValue(step.selector)}, { timeout: ${timeout} });`);
       break;
     }
 
-    case 'playwright_code':
+    case 'playwright_code': {
       // Copy code block verbatim, with proper indentation
       const codeLines = step.code.split('\n');
       codeLines.forEach(line => {
         lines.push(`        ${line}`);
       });
       break;
+    }
 
     default:
-      throw new Error(`Unknown action type: ${step.action}`);
+      throw new Error(
+        `Step "${step.name}": Unknown action type "${step.action}". ` +
+        `Valid actions are: navigate, fill, click, press, type, select, file_upload, wait, playwright_code`
+      );
   }
 
   return lines.join('\n');
@@ -216,7 +311,7 @@ function generateExecuteFunction(step) {
   lines.push(`      execute: async () => {`);
 
   if (step.when) {
-    const condition = convertWhenClause(step.when);
+    const condition = convertWhenClause(step.when, step.name);
     lines.push(`        if (${condition}) {`);
     const indentedBody = executeBody.split('\n').map(l => '  ' + l).join('\n');
     lines.push(indentedBody);
@@ -338,14 +433,11 @@ function convertYamlToJs(workflow) {
  */
 function formatValidationErrors(errors) {
   return errors.map(err => {
-    const lines = [
-      `  - Path: ${err.path}`,
-      `    Error: ${err.message}`
-    ];
+    let output = `  - Path: ${err.path}\n    Error: ${err.message}`;
     if (err.params) {
-      lines.push(`    Details: ${JSON.stringify(err.params)}`);
+      output += `\n    Details: ${JSON.stringify(err.params)}`;
     }
-    return lines.join('\n');
+    return output;
   }).join('\n\n');
 }
 
@@ -393,10 +485,11 @@ Example:
   // Validate against schema
   const validation = validateWorkflow(workflow);
   if (!validation.valid) {
-    console.error('Schema validation failed:\n');
+    console.error('✗ Schema validation failed:\n');
     console.error(formatValidationErrors(validation.errors));
     process.exit(1);
   }
+  console.log('✓ Schema validation passed');
 
   // Convert to JS
   let jsCode;
@@ -412,12 +505,23 @@ Example:
 
   // Ensure output directory exists
   const outputDir = path.dirname(outputPath);
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+  try {
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+  } catch (err) {
+    console.error(`Error: Failed to create output directory "${outputDir}": ${err.message}`);
+    process.exit(1);
   }
 
   // Write output
-  fs.writeFileSync(outputPath, jsCode, 'utf8');
+  try {
+    fs.writeFileSync(outputPath, jsCode, 'utf8');
+  } catch (err) {
+    console.error(`Error: Failed to write output file "${outputPath}": ${err.message}`);
+    process.exit(1);
+  }
+
   console.log(`Generated: ${outputPath}`);
 }
 
