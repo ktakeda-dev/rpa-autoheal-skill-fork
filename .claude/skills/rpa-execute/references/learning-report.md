@@ -2,7 +2,7 @@
 
 <!--
 ## 目的
-フォールバックなしでキャッシュスクリプトだけで全ステップが高速実行できるようにYAMLを改善する。
+フォールバックなしでJSテンプレートだけで全ステップが高速実行できるようにYAMLを改善する。
 フォールバックが発生した = YAMLに問題がある → このレポートで原因分析・改善提案 → YAMLを修正
 -->
 
@@ -67,18 +67,24 @@
 - name: ステップ名（条件A）
   action: fill
   value: "値A"
-  when: "extract.field <= 10000"
+  when:
+    field: extract.field
+    op: "<="
+    value: 10000
 
 - name: ステップ名（条件B）
   action: fill
   value: "値B"
-  when: "extract.field > 10000"
+  when:
+    field: extract.field
+    op: ">"
+    value: 10000
 ```
 
 <!--
 when の書き方:
-- 単一条件: when: "extract.amount > 10000"
-- 複数条件: when: ["条件1", "条件2"] + match: all/any
+- 単一条件: when: { field: "extract.amount", op: ">", value: 10000 }
+- 複数条件: when: { conditions: [...], match: "all" または "any" }
 - 演算子: ==, !=, >, <, >=, <=
 - 参照: extract.*, input.*, constants.*
 
