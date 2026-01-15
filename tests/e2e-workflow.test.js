@@ -14,43 +14,10 @@ const path = require('path');
 const { execSync } = require('child_process');
 const yaml = require('js-yaml');
 const { convertYamlToJs, parseYamlWorkflow, validateWorkflow } = require('../scripts/yaml-to-js');
+const { createMockPage } = require('./helpers/mock-page');
 
 const WORKFLOWS_DIR = path.join(__dirname, '..', 'workflows');
-const GENERATED_DIR = path.join(__dirname, '..', 'generated');
 const SCHEMA_PATH = path.join(__dirname, '..', 'schemas', 'workflow.schema.json');
-
-/**
- * Create a mock page object for testing
- */
-function createMockPage() {
-  const calls = [];
-
-  return {
-    calls,
-    goto: async (url) => {
-      calls.push({ method: 'goto', args: [url] });
-    },
-    waitForLoadState: async (state) => {
-      calls.push({ method: 'waitForLoadState', args: [state] });
-    },
-    fill: async (selector, value) => {
-      calls.push({ method: 'fill', args: [selector, value] });
-    },
-    click: async (selector) => {
-      calls.push({ method: 'click', args: [selector] });
-    },
-    press: async (selector, key) => {
-      calls.push({ method: 'press', args: [selector, key] });
-    },
-    waitForSelector: async (selector, options) => {
-      calls.push({ method: 'waitForSelector', args: [selector, options] });
-    },
-    $$: async (selector) => {
-      calls.push({ method: '$$', args: [selector] });
-      return [];
-    }
-  };
-}
 
 describe('End-to-End Workflow Pipeline', () => {
 
