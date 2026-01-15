@@ -16,15 +16,20 @@ YAMLからPlaywrightコードを生成し、`browser_run_code` で一括実行�
 ```
 メインコンテキスト          Task (general-purpose)
 ─────────────────────────────────────────────────
-1. YAML読み込み
-2. OCRでデータ抽出
-3. JS存在確認
-4. Taskを起動 ──────────→ 5. template.js読み込み
-                          6. browser_run_code実行
-                          7. 結果を返す
+1. JS存在確認
+2. YAMLのinput:セクションで入力項目確認
+3. 入力データ準備（OCR等）
+4. Taskを起動 ──────────→ 5. template.jsをRead
+                          6. __INPUT_DATA__を置換
+                          7. browser_run_code実行
+                          8. 結果を返す
 ←─────────────────────────
-8. 学びレポート作成
+9. 学びレポート作成
 ```
+
+**YAMLの読み方:**
+- `input:` セクション → 入力パラメータ確認時に読む
+- `steps:` セクション → フォールバック発生時のみ読む（学びレポートで改善提案するため）
 
 ---
 
@@ -46,10 +51,12 @@ YAMLからPlaywrightコードを生成し、`browser_run_code` で一括実行�
 
 **JSテンプレートは `/rpa-explore` で生成済みが前提。**
 
-1. `workflows/<name>.yaml` を読み込む
-2. `generated/<name>.template.js` の存在を確認
+1. `generated/<name>.template.js` の存在を確認
    - **存在しない場合**: エラー → `/rpa-explore` でJS生成を案内
-3. 入力ファイル・パラメータを確認、データ抽出（OCR等）
+2. `workflows/<name>.yaml` の `input:` セクションを読んで入力項目を確認
+   - 必須項目（`required: true`）と任意項目を把握
+   - 型（`type`）と説明（`description`）を確認
+3. 入力データを準備（ユーザー指定、OCR抽出等）
 4. 各入力ファイルに対してTaskで実行を起動（1件ずつ）
 
 ### フェーズ2: 実行（1件ごとにTask）
@@ -68,7 +75,12 @@ Task(
     1. generated/<workflow>.template.js を Read で読み込む
     2. __INPUT_DATA__ と __CURRENT_FILE__ を置換してコードを構築
     3. browser_run_code で実行
-    4. 失敗時はMCPフォールバック
+    4. 失敗時のフォールバック手順:
+       a. failedStep の情報（セレクタ、hint）を確認
+       b. browser_snapshot で状態確認
+       c. MCP（browser_click等）で失敗したステップのみ実行
+       d. startFromStep = failedStep + 1 で browser_run_code を再実行（残りのステップを継続）
+       e. 再度失敗したら a に戻る
 
     ## 入力データ
     \`\`\`json
@@ -84,6 +96,11 @@ Task(
 
     ## 完了後
     結果を報告（成功/失敗、フォールバックの有無）
+
+    ## 重要: コンテキスト節約
+    - browser_run_codeの結果にはconsoleログやsnapshotが含まれるが、これらは無視してよい
+    - 報告は必要最小限に: 成功/失敗、完了ステップ数、フォールバック詳細のみ
+    - consoleのエラー/警告は報告不要（広告やトラッキング由来のノイズが多い）
   `
 )
 
@@ -232,12 +249,11 @@ generated/
 ```
 ユーザー: 「myte-expense を実行して。領収書は receipt.jpg」
 
-1. workflows/myte-expense.yaml を読み込む
-2. generated/myte-expense.template.js の存在確認
-3. 入力データ抽出（OCR等）
-4. browser_run_code で実行
-5. 失敗時 → MCPフォールバック → startFromStep で再開
-6. 結果を報告、学びレポート出力
+1. generated/myte-expense.template.js の存在確認
+2. 入力データ抽出（OCR等）
+3. browser_run_code で実行
+4. 失敗時 → MCPフォールバック → startFromStep で再開
+5. 結果を報告、学びレポート出力
 ```
 
 ---
