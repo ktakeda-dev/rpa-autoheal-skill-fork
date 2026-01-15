@@ -1,7 +1,6 @@
-# Generated Code Cache
-# This directory contains cached Playwright code templates
-# Files are auto-generated from workflows/*.yaml
+# Generated Code
+# This directory contains Playwright code templates
+# Files are auto-generated from workflows/*.yaml by scripts/yaml-to-js.js
 
 # Structure:
-# - <workflow-name>.meta.json   # Cache metadata (hash, timestamp)
-# - <workflow-name>.template.js # Code template (input placeholder)
+# - <workflow-name>.template.js # Code template

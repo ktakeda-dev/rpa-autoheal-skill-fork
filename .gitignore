@@ -1,5 +1,5 @@
 .playwright-mcp/
 .browser-profile/
-learnings/
+improvements/
 node_modules/
 package-lock.json

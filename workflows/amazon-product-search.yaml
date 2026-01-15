@@ -25,18 +25,14 @@ steps:
   - name: Amazonにアクセス
     action: navigate
     url: "https://www.amazon.co.jp"
-    fallback:
-      mode: ai_search
-      hint: "Amazon Japan トップページ"
+    hint: "Amazon Japan トップページ"
 
   # ステップ2: 検索ボックスに商品名を入力
   - name: 検索キーワードを入力
     action: fill
     selector: "#twotabsearchtextbox"
     value: "${input.keyword}"
-    fallback:
-      mode: ai_search
-      hint: "Amazon検索ボックス"
+    hint: "Amazon検索ボックス"
 
   # ステップ3: 検索を実行（Enterキー）
   - name: 検索を実行
@@ -80,9 +76,7 @@ steps:
 
       return products;
     output: products
-    fallback:
-      mode: ai_search
-      hint: "検索結果一覧から商品のASIN、価格、評価を取得"
+    hint: "検索結果一覧から商品のASIN、価格、評価を取得"
 
 output:
   products:

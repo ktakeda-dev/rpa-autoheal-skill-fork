@@ -40,7 +40,7 @@ flowchart TB
         F2 -->|失敗時| F3[MCPフォールバック]
     end
 
-    R --> L[(learnings/*.md)]
+    R --> L[(improvements/*.md)]
     F --> L
 ```
 
@@ -51,7 +51,7 @@ flowchart TB
 | **探索モード** | 新しいワークフローを対話的に構築 | 「探索モードで構築」「ワークフローを作成」 |
 | **実行モード** | YAMLを読み込んで自動実行 | 「ワークフローを実行」「.yamlを実行」 |
 | **高速実行モード** | Playwrightコードで一括実行 | 「高速実行」「クイック実行」「fast」 |
-| **改善モード** | 学びを基にYAMLを改善 | 「学びを基に修正」「YAMLを改善」 |
+| **改善モード** | 改善レポートを基にYAMLを改善 | 「改善レポートを基に修正」「YAMLを改善」 |
 
 ### モード比較
 
@@ -131,27 +131,32 @@ flowchart LR
 ## ディレクトリ構成
 
 ```
-browser-automation/
+rpa-autoheal-skill/
 ├── README.md                 # このファイル
+├── package.json              # 依存関係とnpmスクリプト
 ├── run-workflow.js           # スタンドアロン実行ランナー
 ├── .mcp.json                 # MCP設定
-├── .claude/
-│   └── skills/browser-automation/   # スキル本体
-│       ├── SKILL.md              # エントリポイント（モード判断）
-│       ├── references/           # 各モードの詳細ドキュメント
-│       │   ├── explore.md        # 探索モード
-│       │   ├── execute.md        # 実行モード
-│       │   ├── fast-execute.md   # 高速実行モード
-│       │   └── improve.md        # 改善モード
-│       └── templates/            # テンプレート
-│           ├── workflow-template.yaml  # YAML構造の参照
-│           ├── learning-report.md      # 学びレポート形式
-│           ├── code-template.js        # 高速実行コード形式
-│           └── cache-meta.json         # キャッシュメタ形式
 │
-├── workflows/                # 生成されたワークフローYAML
-├── generated/                # 高速実行用の生成コードキャッシュ
-└── learnings/                # 学びレポート
+├── schemas/                  # JSON Schema定義
+│   └── workflow.schema.json  # ワークフローYAML用スキーマ
+│
+├── scripts/                  # ユーティリティスクリプト
+│   └── yaml-to-js.js         # YAML→JS決定論的変換CLI
+│
+├── tests/                    # テストスイート
+│   ├── workflow-schema.test.js   # スキーマ検証テスト
+│   ├── yaml-to-js.test.js        # 変換ロジックテスト
+│   ├── integration.test.js       # 統合テスト
+│   └── e2e-workflow.test.js      # E2Eワークフローテスト
+│
+├── .claude/
+│   └── skills/               # Claude Codeスキル本体
+│       ├── rpa-explore/      # 探索モード
+│       └── rpa-execute/      # 実行モード
+│
+├── workflows/                # ワークフローYAML定義
+├── generated/                # 生成されたJSテンプレートキャッシュ
+└── improvements/             # 改善レポート
 ```
 
 ## 参照ファイルの役割
@@ -174,7 +179,7 @@ browser-automation/
 |------|------|
 | フロー | YAML読込 → Task起動 → 1件ずつ実行 |
 | フォールバック | `ai_search` でスナップショット解析 |
-| 学びレポート | `learnings/` に出力 |
+| 改善レポート | `improvements/` に出力 |
 
 ### references/fast-execute.md - 高速実行モード
 
@@ -188,59 +193,73 @@ browser-automation/
 
 | 内容 | 説明 |
 |------|------|
-| 入力 | 学びレポート + ユーザー指示 |
+| 入力 | 改善レポート + ユーザー指示 |
 | 出力 | 改善されたYAML |
 | 機能 | 条件分岐追加、セレクタ修正、ステップ追加 |
 
 ## YAML構造
 
-`templates/workflow-template.yaml` を参照。主要な要素：
+`schemas/workflow.schema.json` でバリデーション。主要な要素：
 
 ```yaml
-name: workflow-name
+name: workflow-name          # 必須: kebab-case
 description: ワークフローの説明
 
-input:                    # 入力パラメータ
-  image_file:
-    type: image
+input:                       # 入力パラメータ定義
+  search_keyword:
+    type: string
     required: true
+    description: "検索キーワード"
+    example: "laptop"
 
-extract:                  # ファイルからの情報抽出
-  - field: amount
-    prompt: "金額を抽出"
+constants:                   # 定数値
+  base_url: "https://example.com"
+  timeout: 5000
 
-steps:                    # 自動化ステップ
+steps:                       # 自動化ステップ（配列）
   - name: ページを開く
     action: navigate
-    url: https://example.com
+    url: "${constants.base_url}"
 
-  - name: フィールドに入力
+  - name: 検索入力
     action: fill
-    selector: "#amount"
-    value: "{{extract.amount}}"
-    fallback:
-      mode: ai_search
-      hint: "金額入力欄"
+    selector: "#search"
+    value: "${input.search_keyword}"
+    hint: "検索ボックス"          # AI fallback用ヒント
 
-  - name: 高額時のみ実行
+  - name: 高額時のみ実行           # 条件分岐
     action: fill
     selector: "#extra"
     value: "追加情報"
-    when: "extract.amount > 10000"
+    when:
+      field: extract.amount
+      op: ">"
+      value: 10000
+
+  - name: 複数条件（AND）
+    action: click
+    selector: "#submit"
+    when:
+      match: all
+      conditions:
+        - { field: input.enabled, op: "==", value: true }
+        - { field: extract.count, op: ">", value: 0 }
+
+output:                      # 出力定義（オプション）
+  result:
+    description: "検索結果"
 ```
 
 ### アクション一覧
 
-| action | 用途 | 主要パラメータ |
-|--------|------|----------------|
-| `navigate` | URL移動 | `url`, `wait` |
-| `wait` | 要素待機 | `selector`, `timeout` |
-| `click` | クリック | `selector` |
-| `fill` | テキスト入力 | `selector`, `value` |
-| `select` | ドロップダウン選択 | `selector`, `value` |
-| `file_upload` | ファイル選択 | `selector`, `path` |
-| `screenshot` | 画面キャプチャ | `path` |
-| `extract` | データ抽出 | `selector`, `attribute`, `save_as` |
+| action | 用途 | 必須パラメータ | オプション |
+|--------|------|----------------|------------|
+| `navigate` | URL移動 | `url` | - |
+| `fill` | テキスト入力 | `selector`, `value` | `hint` |
+| `click` | クリック | `selector` | `hint` |
+| `press` | キー入力 | `selector`, `key` | `hint` |
+| `wait` | 要素待機 | `selector` | `timeout` |
+| `playwright_code` | カスタムコード | `code` | `output` |
 
 ### セレクタ形式
 
@@ -282,8 +301,70 @@ selector: "textbox[name='...']"
 ### 改善モードでYAML修正
 
 ```
-ユーザー: 「学びレポートを基にYAMLを修正して」
+ユーザー: 「改善レポートを基にYAMLを修正して」
 ```
+
+## 開発
+
+### セットアップ
+
+```bash
+npm install
+```
+
+### npm スクリプト
+
+| コマンド | 説明 |
+|----------|------|
+| `npm test` | 全テスト実行 |
+| `npm run test:schema` | スキーマ検証テストのみ |
+| `npm run test:yaml-to-js` | YAML→JS変換テストのみ |
+| `npm run test:integration` | 統合テストのみ |
+| `npm run convert -- <input.yaml>` | YAMLをJSに変換 |
+
+### YAML→JS 決定論的変換
+
+ワークフローYAMLをPlaywright実行可能なJSテンプレートに変換する機能。AIを介さない純粋な機械的変換。
+
+#### 使い方
+
+```bash
+# 基本使用（outputは generated/<workflow-name>.template.js に自動生成）
+node scripts/yaml-to-js.js workflows/amazon-product-search.yaml
+
+# 出力先を指定
+node scripts/yaml-to-js.js workflows/amazon-product-search.yaml output/custom.js
+```
+
+#### 変換の流れ
+
+```mermaid
+flowchart LR
+    A[YAML読込] --> B[JSON Schema検証]
+    B --> C[AST変換]
+    C --> D[JS生成]
+    D --> E[ファイル出力]
+```
+
+#### 主な機能
+
+| 機能 | 説明 |
+|------|------|
+| **スキーマ検証** | JSON Schemaで構文エラーを事前検出 |
+| **変数補間** | `${input.xxx}`, `${extract.xxx}`, `${constants.xxx}` を展開 |
+| **条件分岐** | `when` 句をJavaScript条件式に変換 |
+| **アクション変換** | navigate, fill, click, press, wait, playwright_code に対応 |
+
+#### サポートされるアクション
+
+| action | 生成されるPlaywrightコード |
+|--------|---------------------------|
+| `navigate` | `page.goto(url)` |
+| `fill` | `page.locator(selector).fill(value)` |
+| `click` | `page.locator(selector).click()` |
+| `press` | `page.locator(selector).press(key)` |
+| `wait` | `page.locator(selector).waitFor({ timeout })` |
+| `playwright_code` | カスタムコードをそのまま埋め込み |
 
 ## スタンドアロン実行（run-workflow.js）
 

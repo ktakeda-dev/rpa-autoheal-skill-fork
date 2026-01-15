@@ -61,7 +61,7 @@ steps:
   - name: フィールドに入力
     action: fill
     selector: "input[name='field']"
-    value: "{{input.text_value}}"
+    value: "${input.text_value}"
     hint: "テキスト入力欄"
 
   # ドロップダウン選択
@@ -99,23 +99,32 @@ steps:
   # 条件付き実行（when）
   # when が指定されたステップは、条件が true の場合のみ実行される
   # 条件式の書き方:
-  #   - 比較: extract.amount > 10000, input.type == "external"
+  #   - 単一条件: { field, op, value }
+  #   - 複数条件: { conditions: [...], match: all/any }
   #   - 演算子: ==, !=, >, <, >=, <=
   #   - 参照可能: extract.*, input.*, constants.*
   - name: 高額時のみ実行するステップ
     action: fill
     selector: "input[name='extra_field']"
     value: "追加情報"
-    when: "extract.amount > 10000"
+    when:
+      field: extract.amount
+      op: ">"
+      value: 10000
 
   # 複数条件（すべて満たす場合）
   - name: 複数条件のステップ
     action: click
     selector: "#special-button"
     when:
-      - "extract.amount > 10000"
-      - "input.type == 'external'"
-    match: all                # all（すべて満たす）| any（いずれか満たす）
+      conditions:
+        - field: extract.amount
+          op: ">"
+          value: 10000
+        - field: input.type
+          op: "=="
+          value: "external"
+      match: all              # all（すべて満たす）| any（いずれか満たす）
 
 # 完了確認（オプション）
 verify:

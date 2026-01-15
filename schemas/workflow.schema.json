@@ -1,0 +1,290 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rpa-autoheal.local/schemas/workflow.schema.json",
+  "title": "RPA Workflow Schema",
+  "description": "Schema for defining deterministic RPA workflows",
+  "type": "object",
+  "required": ["name", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique identifier for the workflow",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of what the workflow does"
+    },
+    "input": {
+      "$ref": "#/definitions/inputSection"
+    },
+    "constants": {
+      "type": "object",
+      "description": "Constant values used throughout the workflow",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "number" },
+          { "type": "boolean" }
+        ]
+      }
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered list of steps to execute",
+      "items": {
+        "$ref": "#/definitions/step"
+      },
+      "minItems": 0
+    },
+    "output": {
+      "$ref": "#/definitions/outputSection"
+    }
+  },
+  "definitions": {
+    "inputSection": {
+      "type": "object",
+      "description": "Input parameters for the workflow",
+      "additionalProperties": {
+        "$ref": "#/definitions/inputParameter"
+      }
+    },
+    "inputParameter": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "image"],
+          "description": "Data type of the parameter"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this parameter is required",
+          "default": false
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the parameter"
+        },
+        "example": {
+          "description": "Example value for documentation"
+        },
+        "default": {
+          "description": "Default value if not provided"
+        }
+      }
+    },
+    "outputSection": {
+      "type": "object",
+      "description": "Output definitions for the workflow",
+      "additionalProperties": {
+        "$ref": "#/definitions/outputDefinition"
+      }
+    },
+    "outputDefinition": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Description of the output"
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON Schema describing the output structure"
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["name", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the step"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["navigate", "fill", "click", "press", "type", "select", "file_upload", "wait", "playwright_code"],
+          "description": "Type of action to perform"
+        },
+        "hint": {
+          "type": "string",
+          "description": "Hint for AI fallback when element cannot be found"
+        },
+        "when": {
+          "$ref": "#/definitions/whenClause"
+        },
+        "url": {
+          "type": "string",
+          "description": "URL to navigate to (for navigate action)",
+          "format": "uri"
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector for the target element"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value to fill (for fill action), supports variable interpolation"
+        },
+        "key": {
+          "type": "string",
+          "description": "Key to press (for press action)"
+        },
+        "file": {
+          "type": "string",
+          "description": "File path for upload (for file_upload action), supports variable interpolation"
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Timeout in milliseconds (for wait action)",
+          "minimum": 0,
+          "default": 30000
+        },
+        "code": {
+          "type": "string",
+          "description": "Playwright code to execute (for playwright_code action)"
+        },
+        "output": {
+          "type": "string",
+          "description": "Variable name to store the result (for playwright_code action)"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "action": { "const": "navigate" } }
+          },
+          "then": {
+            "required": ["url"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "fill" } }
+          },
+          "then": {
+            "required": ["selector", "value"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "click" } }
+          },
+          "then": {
+            "required": ["selector"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "press" } }
+          },
+          "then": {
+            "required": ["selector", "key"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "type" } }
+          },
+          "then": {
+            "required": ["value"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "select" } }
+          },
+          "then": {
+            "required": ["selector", "value"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "file_upload" } }
+          },
+          "then": {
+            "required": ["selector", "file"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "wait" } }
+          },
+          "then": {
+            "required": ["selector"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "playwright_code" } }
+          },
+          "then": {
+            "required": ["code"]
+          }
+        }
+      ]
+    },
+    "whenClause": {
+      "description": "Conditional execution clause",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/singleCondition"
+        },
+        {
+          "$ref": "#/definitions/multipleConditions"
+        }
+      ]
+    },
+    "singleCondition": {
+      "type": "object",
+      "description": "Single condition for when clause",
+      "required": ["field", "op", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "Variable reference (extract.*, input.*, constants.*)",
+          "pattern": "^(extract|input|constants)\\.[a-zA-Z_][a-zA-Z0-9_]*$"
+        },
+        "op": {
+          "type": "string",
+          "enum": ["==", "!=", ">", "<", ">=", "<="],
+          "description": "Comparison operator"
+        },
+        "value": {
+          "description": "Value to compare against"
+        }
+      }
+    },
+    "multipleConditions": {
+      "type": "object",
+      "description": "Multiple conditions with logical operator",
+      "required": ["conditions", "match"],
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/singleCondition"
+          },
+          "minItems": 2
+        },
+        "match": {
+          "type": "string",
+          "enum": ["all", "any"],
+          "description": "Logical operator: 'all' for AND, 'any' for OR"
+        }
+      }
+    },
+    "variableInterpolation": {
+      "type": "string",
+      "description": "Variable interpolation pattern",
+      "pattern": "\\$\\{(extract|input|constants)\\.[a-zA-Z_][a-zA-Z0-9_]*\\}"
+    }
+  }
+}

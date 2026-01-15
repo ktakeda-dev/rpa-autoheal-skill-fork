@@ -16,15 +16,20 @@ YAMLからPlaywrightコードを生成し、`browser_run_code` で一括実行�
 ```
 メインコンテキスト          Task (general-purpose)
 ─────────────────────────────────────────────────
-1. YAML読み込み
-2. OCRでデータ抽出
-3. キャッシュ確認/生成
-4. Taskを起動 ──────────→ 5. template.js読み込み
-                          6. browser_run_code実行
-                          7. 結果を返す
+1. JS存在確認
+2. YAMLのinput:セクションで入力項目確認
+3. 入力データ準備（OCR等）
+4. Taskを起動 ──────────→ 5. template.jsをRead
+                          6. __INPUT_DATA__を置換
+                          7. browser_run_code実行
+                          8. 結果を返す
 ←─────────────────────────
-8. 学びレポート作成
+9. 改善レポート作成
 ```
+
+**YAMLの読み方:**
+- `input:` セクション → 入力パラメータ確認時に読む
+- `steps:` セクション → フォールバック発生時のみ読む（改善レポートで改善提案するため）
 
 ---
 
@@ -36,22 +41,22 @@ YAMLからPlaywrightコードを生成し、`browser_run_code` で一括実行�
 | スナップショット | 基本不要（失敗時のみMCPで取得） |
 | フォールバック | 失敗ステップのみMCP補助 → 途中再開 |
 | トークン消費 | 最小限 |
-| キャッシュ | あり（2回目以降は生成スキップ） |
+| JSテンプレート | `/rpa-explore` で事前生成 |
 
 ---
 
 ## 実行フロー
 
-### フェーズ1: 準備とキャッシュ生成（メインコンテキスト）
+### フェーズ1: 準備（メインコンテキスト）
 
-**重要: キャッシュ生成はメインコンテキストで完了させる。Taskには実行のみ委譲。**
+**JSテンプレートは `/rpa-explore` で生成済みが前提。**
 
-1. `workflows/<name>.yaml` を読み込む
-2. 入力ファイル・パラメータを確認、データ抽出（OCR等）
-3. キャッシュ確認と生成:
-   - `generated/<name>.meta.json` を読み込む
-   - `yamlHash` と現在のYAMLのハッシュを比較
-   - **キャッシュ無効の場合**: メインコンテキストで `template.js` と `meta.json` を生成・保存
+1. `generated/<name>.template.js` の存在を確認
+   - **存在しない場合**: エラー → `/rpa-explore` でJS生成を案内
+2. `workflows/<name>.yaml` の `input:` セクションを読んで入力項目を確認
+   - 必須項目（`required: true`）と任意項目を把握
+   - 型（`type`）と説明（`description`）を確認
+3. 入力データを準備（ユーザー指定、OCR抽出等）
 4. 各入力ファイルに対してTaskで実行を起動（1件ずつ）
 
 ### フェーズ2: 実行（1件ごとにTask）
@@ -66,11 +71,16 @@ Task(
   prompt: `
     ## タスク: <workflow名> 実行
 
-    ## 実行手順（キャッシュ済みテンプレート使用）
+    ## 実行手順（生成済みテンプレート使用）
     1. generated/<workflow>.template.js を Read で読み込む
     2. __INPUT_DATA__ と __CURRENT_FILE__ を置換してコードを構築
     3. browser_run_code で実行
-    4. 失敗時はMCPフォールバック
+    4. 失敗時のフォールバック手順:
+       a. failedStep の情報（セレクタ、hint）を確認
+       b. browser_snapshot で状態確認
+       c. MCP（browser_click等）で失敗したステップのみ実行
+       d. startFromStep = failedStep + 1 で browser_run_code を再実行（残りのステップを継続）
+       e. 再度失敗したら a に戻る
 
     ## 入力データ
     \`\`\`json
@@ -86,19 +96,24 @@ Task(
 
     ## 完了後
     結果を報告（成功/失敗、フォールバックの有無）
+
+    ## 重要: コンテキスト節約
+    - browser_run_codeの結果にはconsoleログやsnapshotが含まれるが、これらは無視してよい
+    - 報告は必要最小限に: 成功/失敗、完了ステップ数、フォールバック詳細のみ
+    - consoleのエラー/警告は報告不要（広告やトラッキング由来のノイズが多い）
   `
 )
 
 // 2件目以降も同様に個別Task
 ```
 
-### フェーズ3: 学びレポート（メインコンテキスト）
+### フェーズ3: 改善レポート（メインコンテキスト）
 
-全件完了後、メインコンテキストで学びレポートを作成:
-- `learnings/<workflow名>/YYYY-MM-DD.md` に保存
+全件完了後、メインコンテキストで改善レポートを作成:
+- `improvements/<workflow名>/YYYY-MM-DD.md` に保存
 - フォールバックが発生した場合は原因・対処・改善案を記録
 
-**失敗時:** MCPフォールバック → `startFromStep` で再開 → 学びレポートにフォールバック内容を記録
+**失敗時:** MCPフォールバック → `startFromStep` で再開 → 改善レポートにフォールバック内容を記録
 
 ---
 
@@ -106,24 +121,11 @@ Task(
 
 ### 前提条件
 
-**YAMLのセレクタは純粋なCSSセレクタであること。**
-
-```yaml
-# OK - CSSセレクタ + Playwright拡張
-selector: "#expense-dropdown"
-selector: "[aria-label*='Reason']"
-selector: "li:has-text('Option Text')"
-
-# NG - MCP専用（実行不可）
-selector: "combobox[name='Select Value']"
-selector: "textbox[name='Amount']"
-```
+**YAMLのセレクタは純粋なCSSセレクタであること。** → `rpa-docs/selectors.md` 参照
 
 ### アクション定義
 
-→ **`rpa-docs/actions.md` を参照**
-
-使用可能なアクション: `navigate`, `wait`, `click`, `fill`, `type`, `select`, `file_upload`, `playwright_code`
+→ `rpa-docs/actions.md` 参照
 
 ---
 
@@ -161,107 +163,90 @@ YAMLの各ステップに `hint` を記載すると、フォールバック時�
 
 ---
 
-## キャッシュ機構
+## 生成済みファイル
 
 ```
 generated/
-├── <workflow>.meta.json    # YAMLハッシュ（キャッシュ判定用）
-└── <workflow>.template.js  # 生成済みコード（プレースホルダー付き）
+└── <workflow>.template.js  # 生成済みコード（/rpa-explore で作成）
 ```
 
-### キャッシュ判定（メインコンテキストで実行）
+**JSテンプレートは `/rpa-explore` でYAML作成時に生成される。**
 
-```bash
-# 1. YAMLのMD5ハッシュを計算
-node -e "const crypto = require('crypto'); const fs = require('fs'); const yaml = fs.readFileSync('workflows/<workflow>.yaml', 'utf8'); console.log(crypto.createHash('md5').update(yaml).digest('hex'));"
-
-# 2. meta.jsonのyamlHashと比較
-# 一致 → キャッシュ有効（template.js をそのまま使用）
-# 不一致 → キャッシュ無効（template.js と meta.json を再生成）
-```
-
-### 保存手順（キャッシュ無効時、メインコンテキストで実行）
-
-**1. meta.json を作成:**
-（テンプレート: `references/cache-meta.json`）
-```json
-{
-  "workflow": "<workflow名>",
-  "yamlHash": "<MD5ハッシュ（32文字の16進数）>",
-  "generatedAt": "<ISO日時>",
-  "version": "1.0",
-  "stepsCount": <ステップ数>,
-  "hasFileUpload": <true/false>,
-  "hasManualLogin": <true/false>
-}
-```
-
-**重要: `yamlHash` は必須。これがないとキャッシュ判定ができない。**
-
-**2. template.js を作成:**
-- `references/code-template.js` を参考に、YAMLのstepsをPlaywrightコードに変換
-- プレースホルダーを残す:
-  - `__INPUT_DATA__` → 実行時に `{ extract: {...}, constants: {...}, startFromStep: N }` に置換
-  - `__CURRENT_FILE__` → 実行時にファイルパスに置換（文字列としてクォート）
-- 各stepを `steps` 配列に追加
-
-**3. Write で保存（メインコンテキスト）:**
-```
-Write("generated/<workflow>.template.js", templateCode)
-Write("generated/<workflow>.meta.json", metaJson)
-```
-
-**4. その後、Taskで実行を起動**
-
-→ テンプレート: `references/code-template.js`
+存在しない場合は `/rpa-explore` でYAML出力（→ 自動でJS生成）を実行すること。
 
 ---
 
-## 学びレポートとYAML改善サイクル
+## 改善レポートと改善サイクル
 
 ### 目的
 
-**最終目標: キャッシュスクリプトだけで全ステップが高速実行できるようにする**
+**最終目標: JSテンプレートだけで全ステップが高速実行できるようにする**
 
-フォールバックが発生した = YAMLに問題がある → 学びレポートで原因分析 → YAMLを修正 → キャッシュ再生成
+フォールバック発生時は原因を分析し、適切な対応先（YAML / SKILL / 実装）を特定する。
 
 ```
-実行 → フォールバック発生 → 学びレポート作成
+実行 → フォールバック発生 → 改善レポート作成
                               ↓
-                         原因分析・改善提案
+                         原因カテゴリを判定
                               ↓
-                         YAMLを修正（探索モードで）
-                              ↓
-                         キャッシュ再生成（yamlHash変更で自動）
+              ┌────────────────┼────────────────┐
+              ↓                ↓                ↓
+           YAML           SKILL            実装
+        セレクタ修正   プロンプト改善   yaml-to-js修正
+              ↓                ↓                ↓
+              └────────────────┼────────────────┘
                               ↓
                          次回実行で検証
 ```
 
-### 学びレポート
+### 原因カテゴリの判定
 
-実行後は `learnings/<workflow名>/YYYY-MM-DD.md` に出力。
+フォールバック発生時、以下のフローで原因を判定:
+
+1. **変換エラーまたは未対応アクションか？** → 実装（yaml-to-js.js）
+2. **YAMLのセレクタ・条件・待機で改善可能か？** → YAML
+3. **テンプレート生成プロンプトの指示不足か？** → SKILL
+4. **サイト変更・一時的問題か？** → 外部要因
+
+| 原因カテゴリ | 対応先 | 典型例 |
+|--------------|--------|--------|
+| YAML | workflows/*.yaml | セレクタ不適切、条件分岐不足、待機時間不足 |
+| SKILL | .claude/skills/rpa-execute/SKILL.md | プロンプト指示不足、テンプレート不備 |
+| 実装 | scripts/yaml-to-js.js | 新アクション未対応、変換バグ |
+| 外部要因 | - | サイト変更、ネットワーク、一時的問題 |
+
+### 改善レポート
+
+実行後は `improvements/<workflow名>/YYYY-MM-DD.md` に出力。
 
 **対応状況フィールド:**
-- `未対応` - まだYAMLに反映していない（次回実行時に同じ問題が再発する）
-- `解決済み` - YAMLを修正した（次回は高速実行で成功するはず）
+- `未対応` - まだ修正を反映していない
+- `解決済み` - 修正完了
 - `対応不要` - 一時的な問題、または仕様上MCP必須
+- `要調査` - 原因が特定できず、追加調査が必要
 
-→ テンプレート: `references/learning-report.md`
+→ テンプレート: `references/improvement-report.md`
 
 ### フォールバック発生時の記録
 
 ```markdown
 ## フォールバック発生箇所
 
-| ステップ | セレクタ | 原因 | 改善案 |
-|---------|---------|------|--------|
-| Step 5: Reason を選択 | `li:has-text('Home <-> ...')` | タイムアウト | wait を 1000ms に増加、セレクタを具体化 |
+| ステップ | セレクタ | 原因 | 原因カテゴリ | 改善案 |
+|---------|---------|------|--------------|--------|
+| Step 5: Reason を選択 | `li:has-text('...')` | タイムアウト | YAML | セレクタを具体化 |
 
 ### 原因分析
+
+#### 推定原因カテゴリ: YAML
+
+**判定理由:**
 - ドロップダウンの読み込みが遅かった
 - セレクタが複数要素にマッチした
 
-### YAMLへの改善提案（具体的なdiff形式で）
+### 改善提案
+
+#### YAML修正案
 ```yaml
 # Before
 - name: Reason を選択
@@ -275,16 +260,24 @@ Write("generated/<workflow>.meta.json", metaJson)
   selector: "[role='listbox'] li:has-text('Home <-> ...')"
   wait: 1000
 ```
+
+#### SKILL修正案
+SKILL修正不要
+
+#### 実装修正案
+実装修正不要
 ```
 
-### YAML修正フロー
+### 修正フロー
 
-**重要: YAMLは自動修正しない。ユーザーが学びレポートを確認し、修正指示を出す。**
+**重要: 自動修正しない。ユーザーが改善レポートを確認し、修正指示を出す。**
 
-1. 学びレポートに改善提案を具体的なdiff形式で記載
+1. 改善レポートに改善提案を原因カテゴリ別に記載
 2. ユーザーが内容を確認
-3. ユーザーから「修正して」等の指示があれば、**探索モード（`/rpa-explore`）** でYAMLを修正
-4. YAML修正後、次回実行時にキャッシュが自動再生成される（yamlHashが変わるため）
+3. 原因カテゴリに応じて対応:
+   - **YAML**: `/rpa-explore` でYAMLを修正 + JS再生成
+   - **SKILL**: SKILL.md を直接編集
+   - **実装**: scripts/yaml-to-js.js を直接編集
 
 ---
 
@@ -293,10 +286,17 @@ Write("generated/<workflow>.meta.json", metaJson)
 ```
 ユーザー: 「myte-expense を実行して。領収書は receipt.jpg」
 
-1. workflows/myte-expense.yaml を読み込む
-2. キャッシュ確認（有効 → スキップ、無効 → コード生成）
-3. 入力データ抽出（OCR等）
-4. browser_run_code で実行
-5. 失敗時 → MCPフォールバック → startFromStep で再開
-6. 結果を報告、学びレポート出力
+1. generated/myte-expense.template.js の存在確認
+2. 入力データ抽出（OCR等）
+3. browser_run_code で実行
+4. 失敗時 → MCPフォールバック → startFromStep で再開
+5. 結果を報告、改善レポート出力
 ```
+
+---
+
+## 参照
+
+- セレクタ形式: `rpa-docs/selectors.md`
+- アクション一覧: `rpa-docs/actions.md`
+- 改善レポートテンプレート: `references/improvement-report.md`
