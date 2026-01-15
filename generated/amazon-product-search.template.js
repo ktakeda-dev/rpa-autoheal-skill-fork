@@ -1,0 +1,114 @@
+// Amazon商品検索ワークフロー - 自動生成テンプレート
+// Generated from: workflows/amazon-product-search.yaml
+
+async (page) => {
+  const inputData = __INPUT_DATA__;
+  const { extract = {}, constants = {}, input = {}, startFromStep = 0 } = inputData;
+
+  const steps = [
+    // Step 0: Amazonにアクセス
+    {
+      name: 'Amazonにアクセス',
+      action: 'navigate',
+      execute: async () => {
+        await page.goto('https://www.amazon.co.jp');
+        await page.waitForLoadState('domcontentloaded');
+      },
+      fallback: { mode: 'ai_search', hint: 'Amazon Japan トップページ' }
+    },
+
+    // Step 1: 検索キーワードを入力
+    {
+      name: '検索キーワードを入力',
+      action: 'fill',
+      selector: '#twotabsearchtextbox',
+      execute: async () => {
+        // extract (run-workflow.js) または input (Claude Code) から取得
+        const keyword = extract.keyword || input.keyword;
+        await page.fill('#twotabsearchtextbox', keyword);
+      },
+      fallback: { mode: 'ai_search', hint: 'Amazon検索ボックス' }
+    },
+
+    // Step 2: 検索を実行
+    {
+      name: '検索を実行',
+      action: 'press',
+      selector: '#twotabsearchtextbox',
+      execute: async () => {
+        await page.press('#twotabsearchtextbox', 'Enter');
+      }
+    },
+
+    // Step 3: 検索結果を待機
+    {
+      name: '検索結果を待機',
+      action: 'wait',
+      selector: "[data-component-type='s-search-result']",
+      execute: async () => {
+        await page.waitForSelector("[data-component-type='s-search-result']", { timeout: 10000 });
+      }
+    },
+
+    // Step 4: 商品情報を抽出
+    {
+      name: '商品情報を抽出',
+      action: 'playwright_code',
+      execute: async () => {
+        const products = [];
+        const items = await page.$$('[data-component-type="s-search-result"]');
+
+        for (let i = 0; i < Math.min(items.length, constants.max_results); i++) {
+          const item = items[i];
+
+          const priceEl = await item.$('.a-price .a-offscreen');
+          const ratingEl = await item.$('[aria-label*="5つ星"]');
+          const asin = await item.getAttribute('data-asin');
+
+          const price = priceEl ? await priceEl.textContent() : null;
+          const rating = ratingEl ? await ratingEl.getAttribute('aria-label') : null;
+
+          if (asin && price) {
+            products.push({
+              asin: asin,
+              price: price,
+              rating: rating ? rating.slice(0, 15) : '評価なし',
+              url: `https://www.amazon.co.jp/dp/${asin}`
+            });
+          }
+        }
+
+        return products;
+      },
+      output: 'products',
+      fallback: { mode: 'ai_search', hint: '検索結果一覧から商品のASIN、価格、評価を取得' }
+    }
+  ];
+
+  const results = { success: true, completedSteps: [], failedStep: null, output: {} };
+
+  for (let i = startFromStep; i < steps.length; i++) {
+    const step = steps[i];
+    try {
+      console.log(`Step ${i}: ${step.name}...`);
+      const stepResult = await step.execute();
+      results.completedSteps.push({ index: i, name: step.name, success: true });
+
+      if (step.output && stepResult !== undefined) {
+        results.output[step.output] = stepResult;
+      }
+    } catch (error) {
+      results.success = false;
+      results.failedStep = {
+        index: i,
+        name: step.name,
+        selector: step.selector,
+        hint: step.fallback?.hint,
+        error: error.message
+      };
+      break;
+    }
+  }
+
+  return results;
+}

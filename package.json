@@ -1,0 +1,17 @@
+{
+  "name": "rpa-autoheal",
+  "version": "1.0.0",
+  "description": "Claude Code 用のブラウザ自動化スキル。Playwright MCP を使用してブラウザ操作を自動化。",
+  "main": "run-workflow.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "js-yaml": "^4.1.1",
+    "playwright": "^1.57.0"
+  }
+}

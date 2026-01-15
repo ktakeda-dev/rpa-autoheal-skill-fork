@@ -1,0 +1,9 @@
+{
+  "workflow": "amazon-product-search",
+  "yamlHash": "f6229f980bc9f015bcff411ccaf5bd23",
+  "generatedAt": "2026-01-15T13:30:00.000Z",
+  "version": "1.0",
+  "stepsCount": 5,
+  "hasFileUpload": false,
+  "hasManualLogin": false
+}

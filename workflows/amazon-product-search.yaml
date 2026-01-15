@@ -1,0 +1,106 @@
+# Amazon 商品検索ワークフロー
+# 指定したキーワードで商品を検索し、上位商品の情報を取得する
+#
+# 使い方:
+#   node run-workflow.js workflows/amazon-product-search.yaml --input '{"keyword": "ワイヤレスイヤホン"}'
+#
+# 入力パラメータ:
+#   keyword: 検索するキーワード（例: "ワイヤレスイヤホン"）
+
+name: amazon-product-search
+description: Amazonで商品を検索し、価格・評価情報を取得
+
+input:
+  keyword:
+    type: string
+    required: true
+    description: 検索キーワード
+    example: "ワイヤレスイヤホン"
+
+constants:
+  max_results: 3
+
+steps:
+  # ステップ1: Amazonトップページにアクセス
+  - name: Amazonにアクセス
+    action: navigate
+    url: "https://www.amazon.co.jp"
+    fallback:
+      mode: ai_search
+      hint: "Amazon Japan トップページ"
+
+  # ステップ2: 検索ボックスに商品名を入力
+  - name: 検索キーワードを入力
+    action: fill
+    selector: "#twotabsearchtextbox"
+    value: "${input.keyword}"
+    fallback:
+      mode: ai_search
+      hint: "Amazon検索ボックス"
+
+  # ステップ3: 検索を実行（Enterキー）
+  - name: 検索を実行
+    action: press
+    selector: "#twotabsearchtextbox"
+    key: "Enter"
+
+  # ステップ4: 検索結果の読み込みを待機
+  - name: 検索結果を待機
+    action: wait
+    selector: "[data-component-type='s-search-result']"
+    timeout: 10000
+
+  # ステップ5: 商品情報を抽出
+  - name: 商品情報を抽出
+    action: playwright_code
+    code: |
+      const products = [];
+      const items = await page.$$('[data-component-type="s-search-result"]');
+
+      for (let i = 0; i < Math.min(items.length, constants.max_results); i++) {
+        const item = items[i];
+
+        // 各要素から情報を抽出
+        const priceEl = await item.$('.a-price .a-offscreen');
+        const ratingEl = await item.$('[aria-label*="5つ星"]');
+        const asin = await item.getAttribute('data-asin');
+
+        const price = priceEl ? await priceEl.textContent() : null;
+        const rating = ratingEl ? await ratingEl.getAttribute('aria-label') : null;
+
+        if (asin && price) {
+          products.push({
+            asin: asin,
+            price: price,
+            rating: rating ? rating.slice(0, 15) : '評価なし',
+            url: `https://www.amazon.co.jp/dp/${asin}`
+          });
+        }
+      }
+
+      return products;
+    output: products
+    fallback:
+      mode: ai_search
+      hint: "検索結果一覧から商品のASIN、価格、評価を取得"
+
+output:
+  products:
+    description: 検索結果の商品リスト
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          asin:
+            type: string
+            description: Amazon商品ID
+          price:
+            type: string
+            description: 価格（円表記）
+          rating:
+            type: string
+            description: 星評価
+          url:
+            type: string
+            description: 商品ページURL

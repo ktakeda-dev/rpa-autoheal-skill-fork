@@ -1,0 +1,125 @@
+# ワークフローテンプレート
+# 探索モードで自動生成されるが、手動で作成・編集も可能
+#
+# 【重要】セレクタは純粋なCSSセレクタを使用すること
+# アクション定義: references/actions.md を参照
+
+name: workflow-name           # ワークフロー識別子
+description: ワークフローの説明
+version: "1.0"
+
+# 入力パラメータ（オプション）
+input:
+  image_file:
+    type: image               # image | pdf | text | file
+    description: "入力画像"
+    required: false
+  documents:
+    type: file[]              # 配列（複数ファイル）
+    description: "複数のドキュメント"
+    repeat: true              # 各ファイルでstepsを繰り返す
+    required: false
+  text_value:
+    type: text
+    description: "テキスト入力"
+    required: false
+
+# 抽出（与えられたファイルから情報を読み取る）
+extract:
+  - field: field_name
+    prompt: "ファイルから抽出する内容の指示"
+
+# 自動化ステップ
+steps:
+  # ページ遷移
+  - name: ページを開く
+    action: navigate
+    url: https://example.com
+    wait: 2000                # ミリ秒
+
+  # 要素の待機
+  - name: ページ読み込み待機
+    action: wait
+    selector: "#main-content"
+    timeout: 5000
+
+  # ログイン待機（手動ログインが必要な場合）
+  - name: ログイン完了を待機
+    action: wait
+    selector: "#user-menu"          # ログイン後に表示される要素
+    timeout: 120000                 # 2分（手動ログイン用）
+    requires_manual_login: true     # 高速実行時にユーザーに通知
+    hint: "ログインしてください。完了後、自動的に続行します"
+
+  # クリック
+  - name: ボタンをクリック
+    action: click
+    selector: "#submit-btn"
+    hint: "送信ボタン（青色、画面右下）"  # フォールバック時のAI向けヒント
+
+  # テキスト入力
+  - name: フィールドに入力
+    action: fill
+    selector: "input[name='field']"
+    value: "{{input.text_value}}"
+    hint: "テキスト入力欄"
+
+  # ドロップダウン選択
+  - name: オプションを選択
+    action: select
+    selector: "select[name='option']"
+    value: "option_value"
+
+  # スクリーンショット
+  - name: 画面キャプチャ
+    action: screenshot
+    path: "screenshot.png"
+
+  # データ抽出
+  - name: テキスト取得
+    action: extract
+    selector: ".result-text"
+    attribute: textContent    # textContent | href | value | etc.
+    save_as: extracted_value
+
+  # Playwrightコード直接実行（複雑な操作用）
+  # 高速実行モードで browser_run_code に変換される
+  - name: 複雑な操作をコードで実行
+    action: playwright_code
+    code: |
+      // Playwright APIを使用した複雑な操作
+      // page オブジェクトが利用可能
+      const rows = page.getByRole('row');
+      for (let i = 0; i < await rows.count(); i++) {
+        const row = rows.nth(i);
+        await row.getByLabel('Field').fill('value');
+      }
+    hint: "テーブルの各行にあるFieldラベルの入力欄"
+
+  # 条件付き実行（when）
+  # when が指定されたステップは、条件が true の場合のみ実行される
+  # 条件式の書き方:
+  #   - 比較: extract.amount > 10000, input.type == "external"
+  #   - 演算子: ==, !=, >, <, >=, <=
+  #   - 参照可能: extract.*, input.*, constants.*
+  - name: 高額時のみ実行するステップ
+    action: fill
+    selector: "input[name='extra_field']"
+    value: "追加情報"
+    when: "extract.amount > 10000"
+
+  # 複数条件（すべて満たす場合）
+  - name: 複数条件のステップ
+    action: click
+    selector: "#special-button"
+    when:
+      - "extract.amount > 10000"
+      - "input.type == 'external'"
+    match: all                # all（すべて満たす）| any（いずれか満たす）
+
+# 完了確認（オプション）
+verify:
+  - type: url_contains
+    value: "/success"
+  - type: element_visible
+    selector: ".success-message"

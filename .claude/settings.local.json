@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__playwright__browser_navigate",
+      "Bash(npx playwright install:*)",
+      "mcp__playwright__browser_run_code",
+      "Bash(where:*)",
+      "Bash(dir \"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\")",
+      "Bash(dir \"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe\")",
+      "Bash(npm init -y)",
+      "Bash(npm install:*)",
+      "Bash(node explore-myte.js:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
