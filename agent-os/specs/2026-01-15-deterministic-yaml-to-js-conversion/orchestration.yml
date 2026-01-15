@@ -1,0 +1,17 @@
+task_groups:
+  - name: yaml-schema-definition
+    claude_code_subagent: implementer
+    standards:
+      - global/*
+  - name: deterministic-conversion-script
+    claude_code_subagent: implementer
+    standards:
+      - global/*
+  - name: execution-environment-integration
+    claude_code_subagent: implementer
+    standards:
+      - global/*
+  - name: test-review-and-gap-analysis
+    claude_code_subagent: implementer
+    standards:
+      - global/*
