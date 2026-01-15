@@ -12,8 +12,8 @@ description: "ブラウザ自動化の探索モード。「探索モードで構
 ## フロー
 
 1. **記録**: ユーザー指示に従いブラウザ操作 → YAML出力 → JS生成
-2. **テスト**: `/rpa-execute` で実行 → 学びレポート確認
-3. **改善**: 学びレポートを基にYAML修正 → JS再生成 → 再テスト
+2. **テスト**: `/rpa-execute` で実行 → 改善レポート確認
+3. **改善**: 改善レポートを基にYAML修正 → JS再生成 → 再テスト
 
 ---
 
@@ -48,11 +48,11 @@ node scripts/yaml-to-js.js workflows/<name>.yaml
 
 ## フェーズ3: 改善
 
-学びレポートを基にYAMLを修正。
+改善レポートを基にYAMLを修正。
 
 ### 手順
 
-1. `learnings/<workflow名>/` から過去の学びを確認
+1. `improvements/<workflow名>/` から過去の改善レポートを確認
 2. 改善点を特定、diff形式で提案
 3. 承認後YAML更新
 4. **`node scripts/yaml-to-js.js` でJS再生成**
